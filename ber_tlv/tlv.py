@@ -164,9 +164,10 @@ class Tlv:
                         res[tag] = value
                     else:
                         res[tag] = tmp
-                except Exception as e:
-                    print(e)
+                except UnexpectedEnd:
                     res[tag] = value
+                except Exception as e:
+                    print("parse exception:",e)
             else:
                 res[tag] = value
         return res
