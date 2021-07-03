@@ -4,21 +4,39 @@ import binascii
 
 
 class BadTag(Exception):
-    pass
+    def __init__(self, path: list):
+        self.txt = str(path)
+
+    def __str__(self) -> str:
+        return "BadTag({})".format(self.txt)
 
 class BadLength(Exception):
-    pass
+    def __init__(self, path: list):
+        self.txt = str(path)
+
+    def __str__(self) -> str:
+        return "BadLength({})".format(self.txt)
 
 class BadParameter(Exception):
-    pass
+    def __init__(self, path: list):
+        self.txt = str(path)
+
+    def __str__(self) -> str:
+        return "BadParameter({})".format(self.txt)
 
 class UnexpectedEnd(Exception):
-    pass
+    def __init__(self, path: list):
+        self.txt = str(path)
+
+    def __str__(self) -> str:
+        return "UnexpectedEnd({})".format(self.txt)
 
 class Tlv:
-    class TlvParser:
-        def __init__(self, data: bytes):
+    class Parser:
+        def __init__(self, data: bytes, path: list, offset: int):
+            self.path = path
             self.data = data
+            self.offset = offset
             self.pos = 0
             self.MultiOctetTagMask = 0x1F
             self.MoreOctetMask = 0x80
@@ -30,6 +48,9 @@ class Tlv:
             self.Len = 4
             self.Data = 5
             self.End = 6
+
+        def get_offset(self):
+            return self.offset + self.pos
 
         def next_byte(self):
             if len(self.data) <= self.pos:
@@ -48,7 +69,7 @@ class Tlv:
             while state != self.End:
                 byte = self.next_byte()
                 if byte == None and state != self.Start:
-                    raise UnexpectedEnd
+                    raise UnexpectedEnd("{} offset: {}".format(self.path, self.get_offset()))
                 if state == self.Start:
                     if byte == 0x00:
                         continue
@@ -63,7 +84,7 @@ class Tlv:
                         state = self.LenStart
                 elif state == self.Tag:
                     if tag_len >= 4:
-                        raise BadTag("Tag is too long [{}]".format(self.pos-1))
+                        raise BadTag("Tag is too long, offset {}".format(self.get_offset()))
                     tag_len += 1
                     tag = ( tag << 8 ) | byte
                     if ( byte & self.MoreOctetMask ) == self.MoreOctetMask:
@@ -74,7 +95,7 @@ class Tlv:
                     if (byte & self.MoreOctetMask) == self.MoreOctetMask:
                         size_len = (byte ^ self.MoreOctetMask)
                         if size_len > 4:
-                            raise BadLength("Tag length is too large [{}]".format(self.pos-1))
+                            raise BadLength("Tag length is too large, offset {}".format(self.get_offset()))
                         state = self.Len
                     else:
                         size = byte
@@ -96,6 +117,33 @@ class Tlv:
                     if size <= 0:
                         state = self.End
             return (tag, bytes(data))
+
+        @staticmethod
+        def parse(data, recursive, path, verbose, offset) -> dict:
+            tlv = Tlv.Parser(data, path, offset)
+            res = {}
+            while True:
+                t = tlv.next()
+                if t is None:
+                    break
+                (tag, value) = t
+                if recursive == True and len(value) > 2:
+                    try:
+                        path.append(tag)
+                        tmp = Tlv.Parser.parse(value, recursive, path, verbose, tlv.get_offset()-len(value))
+                        if tmp == {}:
+                            res[tag] = value
+                        else:
+                            res[tag] = tmp
+                        path.pop()
+                    except Exception as e:
+                        if verbose:
+                            print(str(e))
+                        path.pop()
+                        res[tag] = value
+                else:
+                    res[tag] = value
+            return res
 
     class Builder:
         @staticmethod
@@ -149,28 +197,9 @@ class Tlv:
         return "".join("{:02X}".format(x) for x in msg)
 
     @staticmethod
-    def parse(data: bytes, recursive: bool = False) -> dict:
-        tlv = Tlv.TlvParser(data)
-        res = {}
-        while True:
-            t = tlv.next()
-            if t is None:
-                break
-            (tag, value) = t
-            if recursive == True:
-                try:
-                    tmp = Tlv.parse(value, recursive)
-                    if tmp == {}:
-                        res[tag] = value
-                    else:
-                        res[tag] = tmp
-                except UnexpectedEnd:
-                    res[tag] = value
-                except Exception as e:
-                    print("parse exception:",e)
-            else:
-                res[tag] = value
-        return res
+    def parse(data: bytes, recursive: bool = False, verbose: bool = False) -> dict:
+        path = list()
+        return Tlv.Parser.parse(data, recursive, path, verbose, 0)
 
     @staticmethod
     def build(data: dict) -> bytes:

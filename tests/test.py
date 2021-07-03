@@ -53,6 +53,9 @@ class TestTlv(unittest.TestCase):
         # recursive with padding
         data = Tlv.parse(binascii.unhexlify("009F100B008A034142430010010000"), True)
         assert(data == {0x9F10:{0x8A:b"ABC",0x10:b"\x00"}})
+        # Unexpected end in recursion
+        data = Tlv.parse(binascii.unhexlify("1001018A079F1002414210019F110131"), True)
+        assert(data == {0x10:b"\x01",0x8a:b"\x9F\x10\x02\x41\x42\x10\x01",0x9F11:b"1"})
 
     def test_build(self):
         data = Tlv.build({0x9F10:{0x8A:b"ABC"}})
