@@ -56,10 +56,16 @@ class TestTlv(unittest.TestCase):
         # Unexpected end in recursion
         data = Tlv.parse(binascii.unhexlify("1001018A079F1002414210019F110131"), True)
         assert(data == {0x10:b"\x01",0x8a:b"\x9F\x10\x02\x41\x42\x10\x01",0x9F11:b"1"})
+        # Duplicate tags
+        data = Tlv.parse(binascii.unhexlify("9F01108A034142438A034445468A04100201021101FF"), True)
+        assert(data == {0x9F01:{0x8A:[b"ABC",b'DEF',{0x10:b"\x01\x02"}]},0x11:b"\xff"})
 
     def test_build(self):
         data = Tlv.build({0x9F10:{0x8A:b"ABC"}})
         assert(data == binascii.unhexlify("9F10058A03414243"))
+        # Duplicate tags (list of tags)
+        data = Tlv.build({0x9F01:{0x8A:[b"ABC",b'DEF',{0x10:b"\x01\x02"}]},0x11:b"\xff"})
+        assert(data == binascii.unhexlify("9F01108A034142438A034445468A04100201021101FF"))
         # tag must be integer
         with self.assertRaises(BadTag):
             Tlv.build({"ABC":"1234"})

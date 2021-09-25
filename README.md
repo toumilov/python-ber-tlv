@@ -16,14 +16,14 @@ pip3 install ber-tlv
 Parse TLV:
 ```
 from ber_tlv.tlv import *
-Tlv.parse(binascii.unhexlify("9F10088A03414243100100"), True)
->>> {40720: {138: b'ABC', 16: b'\x00'}}
+Tlv.parse(binascii.unhexlify("9F100D8A034142438A036465661001FF"), True)
+>>> {40720:{138:[b'ABC',b'def'],16:b'\xff'}}
 ```
 Build TLV:
 ```
 from ber_tlv.tlv import *
-Tlv.hexify_bytes(Tlv.build({0x9F10:{0x8A:b"ABC"}}))
->>> "9F10058A03414243"
+Tlv.hexify_bytes(Tlv.build({0x9F10:{0x8A:[b"ABC",b"def"],0x10:b"\xff"}}))
+>>> "9F100D8A034142438A036465661001FF"
 ```
 
 ## Technical description

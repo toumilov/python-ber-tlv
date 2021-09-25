@@ -122,6 +122,15 @@ class Tlv:
         def parse(data, recursive, path, verbose, offset) -> dict:
             tlv = Tlv.Parser(data, path, offset)
             res = {}
+            def __insert(tag, value):
+                if tag in res: # Duplicate tags
+                    if isinstance(res[tag], list) == False:
+                        tmp = res[tag]
+                        res[tag] = list()
+                        res[tag].append(tmp)
+                    res[tag].append(value)
+                else:
+                    res[tag] = value
             while True:
                 t = tlv.next()
                 if t is None:
@@ -132,20 +141,57 @@ class Tlv:
                         path.append(tag)
                         tmp = Tlv.Parser.parse(value, recursive, path, verbose, tlv.get_offset()-len(value))
                         if tmp == {}:
-                            res[tag] = value
+                            __insert(tag, value)
                         else:
-                            res[tag] = tmp
+                            __insert(tag, tmp)
                         path.pop()
                     except Exception as e:
                         if verbose:
                             print(str(e))
                         path.pop()
-                        res[tag] = value
+                        __insert(tag, value)
                 else:
-                    res[tag] = value
+                    __insert(tag, value)
             return res
 
     class Builder:
+        @staticmethod
+        def __build_tag(tag: int) -> bytearray:
+            out = bytearray()
+            tag_bytes = bytearray()
+            for b in tag.to_bytes(4, byteorder="big"):
+                if b == 0:
+                    continue
+                tag_bytes.append(b)
+            if len(tag_bytes) > 1 and (tag_bytes[0] & 0x1f) != 0x1f:
+                raise BadTag(str(tag))
+            out.append(tag_bytes[0])
+            next_expected = (tag_bytes[0] & 0x1f) == 0x1f
+            for i in tag_bytes[1:]:
+                if not next_expected:
+                    raise BadTag(str(tag))
+                next_expected = (i & 0x80) == 0x80
+                out.append(i)
+            return out
+
+        @staticmethod
+        def __build_len(size: int) -> bytearray:
+            out = bytearray()
+            if size >= 0x80:
+                num_bytes = 1
+                l = size
+                for _ in range(3):
+                    l = l >> 8
+                    if l == 0:
+                        break
+                    num_bytes += 1
+                out.append(num_bytes | 0x80)
+                for i in range(num_bytes, 0, -1):
+                    out.append((size >> (8 * (i - 1))) & 0xFF)
+            else:
+                out.append(size)
+            return out
+
         @staticmethod
         def build(data: dict) -> bytes:
             out = bytearray()
@@ -154,40 +200,27 @@ class Tlv:
                     raise BadTag(type(tag).__name__)
                 if value is None:
                     value = bytes()
-                if isinstance(value, dict):
+                elif isinstance(value, dict):
                     value = Tlv.build(value)
-                if not isinstance(value, bytes):
+                elif isinstance(value, list):
+                    for i in value:
+                        out += Tlv.Builder.__build_tag(tag)
+                        if isinstance(i, dict):
+                            buf = Tlv.build(i)
+                            out += Tlv.Builder.__build_len(len(buf))
+                            out += buf
+                        elif isinstance(i, bytes):
+                            out += Tlv.Builder.__build_len(len(i))
+                            out += i
+                        else:
+                            raise BadParameter(type(value).__name__)
+                    continue
+                elif not isinstance(value, bytes):
                     raise BadParameter(type(value).__name__)
                 # Tag
-                tag_bytes = bytearray()
-                for b in tag.to_bytes(4, byteorder="big"):
-                    if b == 0:
-                        continue
-                    tag_bytes.append(b)
-                if len(tag_bytes) > 1 and (tag_bytes[0] & 0x1f) != 0x1f:
-                    raise BadTag(str(tag))
-                out.append(tag_bytes[0])
-                next_expected = (tag_bytes[0] & 0x1f) == 0x1f
-                for i in tag_bytes[1:]:
-                    if not next_expected:
-                        raise BadTag(str(tag))
-                    next_expected = (i & 0x80) == 0x80
-                    out.append(i)
+                out += Tlv.Builder.__build_tag(tag)
                 # Length
-                size = len(value)
-                if size >= 0x80:
-                    num_bytes = 1
-                    l = size
-                    for _ in range(3):
-                        l = l >> 8
-                        if l == 0:
-                            break
-                        num_bytes += 1
-                    out.append(num_bytes | 0x80)
-                    for i in range(num_bytes, 0, -1):
-                        out.append((size >> (8 * (i - 1))) & 0xFF)
-                else:
-                    out.append(size)
+                out += Tlv.Builder.__build_len(len(value))
                 # Value
                 out += value
             return bytes(out)
