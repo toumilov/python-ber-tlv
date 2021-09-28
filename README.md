@@ -17,13 +17,15 @@ Parse TLV:
 ```
 from ber_tlv.tlv import *
 Tlv.parse(binascii.unhexlify("9F100D8A034142438A036465661001FF"), True)
->>> {40720:{138:[b'ABC',b'def'],16:b'\xff'}}
+>>> [(40720,[(138,b'ABC'),(138,b'def'),(16,b'\xff')])]
 ```
 Build TLV:
 ```
 from ber_tlv.tlv import *
-Tlv.hexify_bytes(Tlv.build({0x9F10:{0x8A:[b"ABC",b"def"],0x10:b"\xff"}}))
->>> "9F100D8A034142438A036465661001FF"
+Tlv.hexify_bytes(Tlv.build({0x9F10:[(0x8A,b"ABC"),(0x8B,{0x10:b"\xf0\x0d"})]}))
+>>> "9F100B8A034142438B041002F00D"
+Tlv.hexify_bytes(Tlv.build([(0x9F01,[(0x8A,b'\x01'),(0x8B,b"ABC"),(0x8A,b"\x02"),(0x8B,b"DEF"),(0x10,[(0x11,b"\x01\x02")])]),(0x11,b"\xff")]))
+>>> "9F01168A01018B034142438A01028B034445461004110201021101FF"
 ```
 
 ## Technical description

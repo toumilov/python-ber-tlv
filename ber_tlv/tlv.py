@@ -4,32 +4,36 @@ import binascii
 
 
 class BadTag(Exception):
-    def __init__(self, path: list):
+    def __init__(self, msg: str, path: list):
         self.txt = str(path)
+        self.msg = str(msg)
 
     def __str__(self) -> str:
-        return "BadTag({})".format(self.txt)
+        return "BadTag({}) {}".format(self.msg, self.txt)
 
 class BadLength(Exception):
-    def __init__(self, path: list):
+    def __init__(self, msg: str, path: list):
         self.txt = str(path)
+        self.msg = str(msg)
 
     def __str__(self) -> str:
-        return "BadLength({})".format(self.txt)
+        return "BadLength({}) {}".format(self.msg, self.txt)
 
 class BadParameter(Exception):
-    def __init__(self, path: list):
+    def __init__(self, msg: str, path: list):
         self.txt = str(path)
+        self.msg = str(msg)
 
     def __str__(self) -> str:
-        return "BadParameter({})".format(self.txt)
+        return "BadParameter({}) {}".format(self.msg, self.txt)
 
 class UnexpectedEnd(Exception):
-    def __init__(self, path: list):
+    def __init__(self, msg: str, path: list):
         self.txt = str(path)
+        self.msg = str(msg)
 
     def __str__(self) -> str:
-        return "UnexpectedEnd({})".format(self.txt)
+        return "UnexpectedEnd({}) {}".format(self.msg, self.txt)
 
 class Tlv:
     class Parser:
@@ -69,7 +73,7 @@ class Tlv:
             while state != self.End:
                 byte = self.next_byte()
                 if byte == None and state != self.Start:
-                    raise UnexpectedEnd("{} offset: {}".format(self.path, self.get_offset()))
+                    raise UnexpectedEnd("offset: {}".format(self.get_offset()), self.path)
                 if state == self.Start:
                     if byte == 0x00:
                         continue
@@ -84,7 +88,7 @@ class Tlv:
                         state = self.LenStart
                 elif state == self.Tag:
                     if tag_len >= 4:
-                        raise BadTag("Tag is too long, offset {}".format(self.get_offset()))
+                        raise BadTag("Tag is too long, offset {}".format(self.get_offset()), self.path)
                     tag_len += 1
                     tag = ( tag << 8 ) | byte
                     if ( byte & self.MoreOctetMask ) == self.MoreOctetMask:
@@ -95,7 +99,7 @@ class Tlv:
                     if (byte & self.MoreOctetMask) == self.MoreOctetMask:
                         size_len = (byte ^ self.MoreOctetMask)
                         if size_len > 4:
-                            raise BadLength("Tag length is too large, offset {}".format(self.get_offset()))
+                            raise BadLength("Tag length is too large, offset {}".format(self.get_offset()), self.path)
                         state = self.Len
                     else:
                         size = byte
@@ -119,18 +123,11 @@ class Tlv:
             return (tag, bytes(data))
 
         @staticmethod
-        def parse(data, recursive, path, verbose, offset) -> dict:
+        def parse(data, recursive, path, verbose, offset) -> list:
             tlv = Tlv.Parser(data, path, offset)
-            res = {}
+            res = list()
             def __insert(tag, value):
-                if tag in res: # Duplicate tags
-                    if isinstance(res[tag], list) == False:
-                        tmp = res[tag]
-                        res[tag] = list()
-                        res[tag].append(tmp)
-                    res[tag].append(value)
-                else:
-                    res[tag] = value
+                res.append((tag, value))
             while True:
                 t = tlv.next()
                 if t is None:
@@ -140,7 +137,7 @@ class Tlv:
                     try:
                         path.append(tag)
                         tmp = Tlv.Parser.parse(value, recursive, path, verbose, tlv.get_offset()-len(value))
-                        if tmp == {}:
+                        if tmp == list():
                             __insert(tag, value)
                         else:
                             __insert(tag, tmp)
@@ -156,7 +153,7 @@ class Tlv:
 
     class Builder:
         @staticmethod
-        def __build_tag(tag: int) -> bytearray:
+        def __build_tag(tag: int, path) -> bytearray:
             out = bytearray()
             tag_bytes = bytearray()
             for b in tag.to_bytes(4, byteorder="big"):
@@ -164,12 +161,12 @@ class Tlv:
                     continue
                 tag_bytes.append(b)
             if len(tag_bytes) > 1 and (tag_bytes[0] & 0x1f) != 0x1f:
-                raise BadTag(str(tag))
+                raise BadTag(str(tag), path)
             out.append(tag_bytes[0])
             next_expected = (tag_bytes[0] & 0x1f) == 0x1f
             for i in tag_bytes[1:]:
                 if not next_expected:
-                    raise BadTag(str(tag))
+                    raise BadTag(str(tag), path)
                 next_expected = (i & 0x80) == 0x80
                 out.append(i)
             return out
@@ -193,36 +190,39 @@ class Tlv:
             return out
 
         @staticmethod
-        def build(data: dict) -> bytes:
+        def build(data, path) -> bytes:
             out = bytearray()
-            for tag, value in data.items():
+            def items(data, path):
+                if isinstance(data, dict):
+                    for tag, value in data.items():
+                        yield (tag, value)
+                elif isinstance(data, list):
+                    for i in data:
+                        if type(i) is not tuple:
+                            raise BadParameter("Not a tuple", path)
+                        if len(i) != 2:
+                            raise BadLength(str(len(i)), path)
+                        yield i
+                else:
+                    raise BadParameter(type(data).__name__, path)
+
+            for tag, value in items(data, path):
+                path.append(tag)
                 if not isinstance(tag, int):
-                    raise BadTag(type(tag).__name__)
+                    raise BadTag(type(tag).__name__, path)
                 if value is None:
                     value = bytes()
-                elif isinstance(value, dict):
-                    value = Tlv.build(value)
-                elif isinstance(value, list):
-                    for i in value:
-                        out += Tlv.Builder.__build_tag(tag)
-                        if isinstance(i, dict):
-                            buf = Tlv.build(i)
-                            out += Tlv.Builder.__build_len(len(buf))
-                            out += buf
-                        elif isinstance(i, bytes):
-                            out += Tlv.Builder.__build_len(len(i))
-                            out += i
-                        else:
-                            raise BadParameter(type(value).__name__)
-                    continue
+                elif isinstance(value, dict) or isinstance(value, list):
+                    value = Tlv.Builder.build(value, path)
                 elif not isinstance(value, bytes):
-                    raise BadParameter(type(value).__name__)
+                    raise BadParameter(type(value).__name__, path)
                 # Tag
-                out += Tlv.Builder.__build_tag(tag)
+                out += Tlv.Builder.__build_tag(tag, path)
                 # Length
                 out += Tlv.Builder.__build_len(len(value))
                 # Value
                 out += value
+                path.pop()
             return bytes(out)
 
     @staticmethod
@@ -236,4 +236,5 @@ class Tlv:
 
     @staticmethod
     def build(data: dict) -> bytes:
-        return Tlv.Builder.build(data)
+        path = list()
+        return Tlv.Builder.build(data, path)

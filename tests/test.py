@@ -10,25 +10,28 @@ class TestTlv(unittest.TestCase):
     def test_parse(self):
         # 1-byte tag
         data = Tlv.parse(binascii.unhexlify("100100"))
-        assert(data[0x10] == binascii.unhexlify("00"))
+        assert(data == [(0x10, b"\x00")])
         # 2-byte tag
         data = Tlv.parse(binascii.unhexlify("9F01021234"))
-        assert(data[0x9F01] == binascii.unhexlify("1234"))
+        assert(data == [(0x9F01, b"\x12\x34")])
         # 3-byte tag
         data = Tlv.parse(binascii.unhexlify("BF8101021234"))
-        assert(data[0xBF8101] == binascii.unhexlify("1234"))
+        assert(data == [(0xBF8101, b"\x12\x34")])
         # 4-byte tag
         data = Tlv.parse(binascii.unhexlify("BF81FF01021234"))
-        assert(data[0xBF81FF01] == binascii.unhexlify("1234"))
+        assert(data == [(0xBF81FF01, b"\x12\x34")])
         # >4 byte length is not valid
         with self.assertRaises(BadTag):
             Tlv.parse(binascii.unhexlify("BF81FF8301021234"))
         # no data
         data = Tlv.parse(binascii.unhexlify("1000"))
-        assert(len(data[0x10]) == 0)
+        assert(data == [(0x10, b"")])
         # 2-byte length
         data = Tlv.parse(binascii.unhexlify("12820101"+"00"*257))
-        assert(len(data[0x12]) == 257)
+        tag, value = data[0]
+        assert(tag == 0x12)
+        assert(len(value) == 257)
+        assert(value == binascii.unhexlify("00"*257))
         # length >4
         with self.assertRaises(BadLength):
             Tlv.parse(binascii.unhexlify("1285"))
@@ -37,39 +40,52 @@ class TestTlv(unittest.TestCase):
             data = Tlv.parse(binascii.unhexlify("9F010212"))
         # multiple tags
         data = Tlv.parse(binascii.unhexlify("9F1001318A03414243"))
-        assert(data == {0x9F10:b"1",0x8A:b"ABC"})
+        assert(data == [(0x9F10,b"1"),(0x8A,b"ABC")])
         # recursive
         data = Tlv.parse(binascii.unhexlify("9F10088A03414243100100"), True)
-        assert(data == {0x9F10:{0x8A:b"ABC",0x10:b"\x00"}})
+        assert(data == [(0x9F10,[(0x8A,b"ABC"),(0x10,b"\x00")])])
         # leading zeroes
         data = Tlv.parse(binascii.unhexlify("00009F1001318A03414243"))
-        assert(data == {0x9F10:b"1",0x8A:b"ABC"})
+        assert(data == [(0x9F10,b"1"),(0x8A,b"ABC")])
         # inter-element padding
         data = Tlv.parse(binascii.unhexlify("9F10013100008A03414243"))
-        assert(data == {0x9F10:b"1",0x8A:b"ABC"})
+        assert(data == [(0x9F10,b"1"),(0x8A,b"ABC")])
         # trailing zeroes
         data = Tlv.parse(binascii.unhexlify("9F1001318A034142430000"))
-        assert(data == {0x9F10:b"1",0x8A:b"ABC"})
+        assert(data == [(0x9F10,b"1"),(0x8A,b"ABC")])
         # recursive with padding
         data = Tlv.parse(binascii.unhexlify("009F100B008A034142430010010000"), True)
-        assert(data == {0x9F10:{0x8A:b"ABC",0x10:b"\x00"}})
+        assert(data == [(0x9F10,[(0x8A,b"ABC"),(0x10,b"\x00")])])
         # Unexpected end in recursion
         data = Tlv.parse(binascii.unhexlify("1001018A079F1002414210019F110131"), True)
-        assert(data == {0x10:b"\x01",0x8a:b"\x9F\x10\x02\x41\x42\x10\x01",0x9F11:b"1"})
+        assert(data == [(0x10,b"\x01"),(0x8a,b"\x9F\x10\x02\x41\x42\x10\x01"),(0x9F11,b"1")])
         # Duplicate tags
         data = Tlv.parse(binascii.unhexlify("9F01108A034142438A034445468A04100201021101FF"), True)
-        assert(data == {0x9F01:{0x8A:[b"ABC",b'DEF',{0x10:b"\x01\x02"}]},0x11:b"\xff"})
+        assert(data == [(0x9F01,[(0x8A,b"ABC"),(0x8A,b'DEF'),(0x8A,[(0x10,b"\x01\x02")])]),(0x11,b"\xff")])
 
     def test_build(self):
+        # Empty dict
+        data = Tlv.build({})
+        assert(data == b"")
+        # Nested items
         data = Tlv.build({0x9F10:{0x8A:b"ABC"}})
         assert(data == binascii.unhexlify("9F10058A03414243"))
-        # Duplicate tags (list of tags)
-        data = Tlv.build({0x9F01:{0x8A:[b"ABC",b'DEF',{0x10:b"\x01\x02"}]},0x11:b"\xff"})
-        assert(data == binascii.unhexlify("9F01108A034142438A034445468A04100201021101FF"))
+        # Nested items: empty list
+        data = Tlv.build({0x9F10:{0x8A:b"ABC",0x8B:[]}})
+        assert(data == binascii.unhexlify("9F10078A034142438B00"))
+        # Nested items: list
+        data = Tlv.build({0x9F10:[(0x8A,b"ABC"),(0x8B,{0x10:b"\xf0\x0d"})]})
+        assert(data == binascii.unhexlify("9F100b8A034142438B041002f00d"))
+        # Empty tag
+        data = Tlv.build({0x9F10:{0x8A:None}})
+        assert(data == binascii.unhexlify("9F10028A00"))
+        # Duplicate tags (list of tags) - ordering preserved
+        data = Tlv.build([(0x9F01,[(0x8A,b'\x01'),(0x8B,b"ABC"),(0x8A,b"\x02"),(0x8B,b"DEF"),(0x10,[(0x11,b"\x01\x02")])]),(0x11,b"\xff")])
+        assert(data == binascii.unhexlify("9f01168a01018b034142438a01028b034445461004110201021101ff"))
         # tag must be integer
         with self.assertRaises(BadTag):
-            Tlv.build({"ABC":"1234"})
-        # value must be bytes or dict
+            Tlv.build({0x8A:[(0x8B,b"12"),("8C",b"34")]})
+        # value must be bytes, dict or list
         with self.assertRaises(BadParameter):
             Tlv.build({0x9F10:"1234"})
         # tag must be well formatted
