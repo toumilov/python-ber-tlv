@@ -44,6 +44,8 @@ class Tlv:
             self.pos = 0
             self.MultiOctetTagMask = 0x1F
             self.MoreOctetMask = 0x80
+            self.ConstructedValueMask = 0x20  # mask for first byte of tag octet
+            self.ConstructedValue = False  # when True then recursion is enabled
             # states
             self.Start = 0
             self.TagStart = 1
@@ -82,6 +84,8 @@ class Tlv:
                     if byte is None:
                         return None
                     tag = byte
+                    if (byte & self.ConstructedValueMask) == self.ConstructedValueMask:
+                        self.ConstructedValue = True
                     if ( byte & self.MultiOctetTagMask ) == self.MultiOctetTagMask:
                         state = self.Tag
                     else:
@@ -120,7 +124,7 @@ class Tlv:
                     size -= 1
                     if size <= 0:
                         state = self.End
-            return (tag, bytes(data))
+            return (tag, bytes(data), self.ConstructedValue)
 
         @staticmethod
         def parse(data, recursive, path, verbose, offset) -> list:
@@ -132,7 +136,7 @@ class Tlv:
                 t = tlv.next()
                 if t is None:
                     break
-                (tag, value) = t
+                (tag, value, recursive) = t
                 if recursive == True and len(value) > 2:
                     try:
                         path.append(tag)
