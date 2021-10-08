@@ -62,6 +62,17 @@ class TestTlv(unittest.TestCase):
         # Duplicate tags
         data = Tlv.parse(binascii.unhexlify("9F01108A034142438A034445468A04100201021101FF"), True)
         assert(data == [(0x9F01,[(0x8A,b"ABC"),(0x8A,b'DEF'),(0x8A,[(0x10,b"\x01\x02")])]),(0x11,b"\xff")])
+        # Recursion based on tag constructed type
+        data = Tlv.parse(binascii.unhexlify("7F100DF303414243F4038A0135100100"))
+        assert(data == [(0x7F10,[(0xF3,b"ABC"),(0xF4,[(0x8A,b"5")]),(0x10,b"\x00")])])
+        data = Tlv.parse(binascii.unhexlify("7F100DF303414243F4038A0135100100"), None)
+        assert(data == [(0x7F10,[(0xF3,b"ABC"),(0xF4,[(0x8A,b"5")]),(0x10,b"\x00")])])
+        # Forced recursion
+        data = Tlv.parse(binascii.unhexlify("7F100DF303414243D4038A0135100100"), True)
+        assert(data == [(0x7F10,[(0xF3,b"ABC"),(0xD4,[(0x8A,b"5")]),(0x10,b"\x00")])])
+        # No recursion
+        data = Tlv.parse(binascii.unhexlify("7F100DF303414243F4038A0135100100"), False)
+        assert(data == [(0x7F10,b"\xF3\x03\x41\x42\x43\xF4\x03\x8A\x01\x35\x10\x01\x00")])
 
     def test_build(self):
         # Empty dict
@@ -93,6 +104,29 @@ class TestTlv(unittest.TestCase):
             Tlv.build({0x6FFFFFFF:b"1234"})
         with self.assertRaises(BadTag):
             Tlv.build({0x7FFF0123:b"1234"})
+
+    def test_hexify(self):
+        assert(Tlv.hexify_bytes(b"\x01\x23\x45\x67\x89\xab\xcd\xef") == "0123456789ABCDEF")
+
+    def test_tags(self):
+        assert(Tag.tagClass(0x1f10) == Tag.UNIVERSAL)
+        assert(Tag.isConstructed(0x1f10) == False)
+        assert(Tag.tagClass(0x3f10) == Tag.UNIVERSAL)
+        assert(Tag.isConstructed(0x3f10) == True)
+        assert(Tag.tagClass(0x5f10) == Tag.APPLICATION)
+        assert(Tag.isConstructed(0x5f10) == False)
+        assert(Tag.tagClass(0x7f10) == Tag.APPLICATION)
+        assert(Tag.isConstructed(0x7f10) == True)
+        assert(Tag.tagClass(0x9f10) == Tag.CONTEXT_SPECIFIC)
+        assert(Tag.isConstructed(0x9f10) == False)
+        assert(Tag.tagClass(0xbf10) == Tag.CONTEXT_SPECIFIC)
+        assert(Tag.isConstructed(0xbf10) == True)
+        assert(Tag.tagClass(0xdf10) == Tag.PRIVATE)
+        assert(Tag.isConstructed(0xdf10) == False)
+        assert(Tag.tagClass(0xff10) == Tag.PRIVATE)
+        assert(Tag.isConstructed(0xff10) == True)
+        assert(Tag.tagClass(0) == Tag.UNIVERSAL)
+        assert(Tag.isConstructed(0) == False)
 
 if __name__ == '__main__':
     unittest.main()

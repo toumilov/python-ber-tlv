@@ -15,18 +15,37 @@ pip3 install ber-tlv
 ## Usage
 Parse TLV:
 ```
-from ber_tlv.tlv import *
-Tlv.parse(binascii.unhexlify("9F100D8A034142438A036465661001FF"), True)
->>> [(40720,[(138,b'ABC'),(138,b'def'),(16,b'\xff')])]
+>>> from ber_tlv.tlv import *
+>>> Tlv.parse(binascii.unhexlify("7F100DF303414243F4038A0135100100"))
+[(32528, [(243, b'ABC'), (244, [(138, b'5')]), (16, b'\x00')])]
 ```
 Build TLV:
 ```
-from ber_tlv.tlv import *
-Tlv.hexify_bytes(Tlv.build({0x9F10:[(0x8A,b"ABC"),(0x8B,{0x10:b"\xf0\x0d"})]}))
->>> "9F100B8A034142438B041002F00D"
-Tlv.hexify_bytes(Tlv.build([(0x9F01,[(0x8A,b'\x01'),(0x8B,b"ABC"),(0x8A,b"\x02"),(0x8B,b"DEF"),(0x10,[(0x11,b"\x01\x02")])]),(0x11,b"\xff")]))
->>> "9F01168A01018B034142438A01028B034445461004110201021101FF"
+>>> from ber_tlv.tlv import *
+>>> Tlv.build({0x9F10:[(0x8A,b"ABC"),(0x8B,{0x10:b"\xf0\x0d"})]})
+b'\x9f\x10\x0b\x8a\x03ABC\x8b\x04\x10\x02\xf0\r'
 ```
+Convert HEX bytes to string:
+```
+>>> from ber_tlv.tlv import *
+>>> Tlv.hexify_bytes(b"\x01\x23\x45\x67\x89\xab\xcd\xef")
+'0123456789ABCDEF'
+```
+Tag class checking:
+```
+>>> from ber_tlv.tlv import *
+>>> Tag.isConstructed(0x7f10)
+True
+>>> Tag.tagClass(0x1f10) == Tag.UNIVERSAL
+True
+>>> Tag.tagClass(0x7f10) == Tag.APPLICATION
+True
+>>> Tag.tagClass(0x9f10) == Tag.CONTEXT_SPECIFIC
+True
+>>> Tag.tagClass(0xdf10) == Tag.PRIVATE
+True
+```
+
 
 ## Technical description
 Below is a brief technical description of BER-TLV format.

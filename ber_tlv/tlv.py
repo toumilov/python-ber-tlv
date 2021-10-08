@@ -35,6 +35,31 @@ class UnexpectedEnd(Exception):
     def __str__(self) -> str:
         return "UnexpectedEnd({}) {}".format(self.msg, self.txt)
 
+class Tag:
+    UNIVERSAL = 0
+    APPLICATION = 1
+    CONTEXT_SPECIFIC = 2
+    PRIVATE = 3
+
+    @staticmethod
+    def __leadingByte(tag: int) -> int:
+        b = 0
+        for i in range(3, -1, -1):
+            b = (tag >> (i*8))&0xFF
+            if b != 0:
+                break
+        return b
+
+    @staticmethod
+    def isConstructed(tag: int) -> bool:
+        """ Returns True, if the bit 6 of the tag's leading byte is set """
+        return (Tag.__leadingByte(tag) & 0x20) > 0
+
+    @staticmethod
+    def tagClass(tag: int) -> bool:
+        """ Returns tag class constant, based on leading byte bits 7-8 """
+        return (Tag.__leadingByte(tag) & 0xC0) >> 6
+
 class Tlv:
     class Parser:
         def __init__(self, data: bytes, path: list, offset: int):
@@ -133,7 +158,7 @@ class Tlv:
                 if t is None:
                     break
                 (tag, value) = t
-                if recursive == True and len(value) > 2:
+                if (recursive == True or (recursive == None and Tag.isConstructed(tag))) and len(value) > 2:
                     try:
                         path.append(tag)
                         tmp = Tlv.Parser.parse(value, recursive, path, verbose, tlv.get_offset()-len(value))
@@ -227,14 +252,35 @@ class Tlv:
 
     @staticmethod
     def hexify_bytes(msg: bytes) -> str:
+        """ Convert bytes to hex string """
         return "".join("{:02X}".format(x) for x in msg)
 
     @staticmethod
-    def parse(data: bytes, recursive: bool = False, verbose: bool = False) -> dict:
+    def parse(data: bytes, recursive: bool = None, verbose: bool = False) -> list:
+        """
+        Parse input data as BER-TLV tree.
+            Parameters:
+                data (bytes): Input data bytes
+                recursive (bool): Recursive parsing enforcement
+                    None (default): recursion decision is made based on tag "constructed" type
+                    True: Enforce recursion
+                    False: No recursion
+                verbose (bool): Print parsing output
+            Returns:
+                A list of (tag, data) tuples, where data may have nested elements in case of recursive parsing.
+                Tag order is preserved.
+        """
         path = list()
         return Tlv.Parser.parse(data, recursive, path, verbose, 0)
 
     @staticmethod
-    def build(data: dict) -> bytes:
+    def build(data) -> bytes:
+        """
+        Build BER-TLV tree based on input data.
+            Parameters:
+                data (list or dict): tag-value data
+            Returns:
+                BER-TLV tree data
+        """
         path = list()
         return Tlv.Builder.build(data, path)
