@@ -93,6 +93,9 @@ class TestTlv(unittest.TestCase):
         # Duplicate tags (list of tags) - ordering preserved
         data = Tlv.build([(0x9F01,[(0x8A,b'\x01'),(0x8B,b"ABC"),(0x8A,b"\x02"),(0x8B,b"DEF"),(0x10,[(0x11,b"\x01\x02")])]),(0x11,b"\xff")])
         assert(data == binascii.unhexlify("9f01168a01018b034142438a01028b034445461004110201021101ff"))
+        # Tag with trailing zero byte
+        data = Tlv.build({0xDFA300:b"app123"})
+        assert(data == binascii.unhexlify("DFA30006617070313233"))
         # tag must be integer
         with self.assertRaises(BadTag):
             Tlv.build({0x8A:[(0x8B,b"12"),("8C",b"34")]})

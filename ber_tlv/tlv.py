@@ -182,7 +182,7 @@ class Tlv:
             out = bytearray()
             tag_bytes = bytearray()
             for b in tag.to_bytes(4, byteorder="big"):
-                if b == 0:
+                if b == 0 and len(tag_bytes) == 0:
                     continue
                 tag_bytes.append(b)
             if len(tag_bytes) > 1 and (tag_bytes[0] & 0x1f) != 0x1f:
